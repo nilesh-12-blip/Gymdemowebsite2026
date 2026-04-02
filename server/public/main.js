@@ -6,25 +6,24 @@
 // ========================
 let currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
 const ADMIN_ID = 'admin';
-const ADMIN_PASSWORD = 'apex2026';
+const ADMIN_PASSWORD = 'admin123'; // Updated to match backend
+const API_BASE = '/api';
 
 // ========================
 // PRELOADER
 // ========================
 window.addEventListener('load', () => {
-    setTimeout(() => {
-        document.getElementById('preloader').classList.add('hidden');
-    }, 1500);
+    const preloader = document.getElementById('preloader');
+    if (preloader) preloader.classList.add('hidden');
 });
 
-// Fallback: Force hide preloader after 3s max
+// Fallback: Force hide preloader after 1.5s max
 setTimeout(() => {
     const preloader = document.getElementById('preloader');
     if (preloader && !preloader.classList.contains('hidden')) {
         preloader.classList.add('hidden');
-        console.log('Preloader fallback triggered');
     }
-}, 3000);
+}, 1500);
 
 
 
@@ -241,52 +240,91 @@ function openModal(id) { document.getElementById(id).classList.add('active'); do
 function closeModal(id) { document.getElementById(id).classList.remove('active'); document.body.style.overflow = ''; }
 function switchModal(from, to) { closeModal(from); setTimeout(() => openModal(to), 200); }
 
-function initAuth() {
+async function initAuth() {
     // Register
-    document.getElementById('registerForm').addEventListener('submit', (e) => {
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const name = document.getElementById('registerName').value;
         const email = document.getElementById('registerEmail').value;
         const password = document.getElementById('registerPassword').value;
 
-        const users = JSON.parse(localStorage.getItem('apex_users') || '[]');
-        if (users.find(u => u.email === email)) { showToast('Email already registered!', 'error'); return; }
-        const user = { id: Date.now(), name, email, password, plan: 'none', joinedAt: new Date().toISOString() };
-        users.push(user);
-        localStorage.setItem('apex_users', JSON.stringify(users));
-        currentUser = { id: user.id, name, email, plan: 'none' };
-        localStorage.setItem('currentUser', JSON.stringify(currentUser));
-        closeModal('registerModal');
-        updateAuthUI();
-        showToast('Welcome to APEX, ' + name + '! 🔥', 'success');
+        try {
+            const res = await fetch(`${API_BASE}/auth/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, email, password })
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                currentUser = data.user;
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                localStorage.setItem('token', data.token);
+                closeModal('registerModal');
+                updateAuthUI();
+                showToast('Welcome to APEX, ' + name + '! 🔥', 'success');
+            } else {
+                showToast(data.message || 'Registration failed', 'error');
+            }
+        } catch (error) {
+            showToast('Network error. Please try again.', 'error');
+        }
     });
 
     // Login
-    document.getElementById('loginForm').addEventListener('submit', (e) => {
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const email = document.getElementById('loginEmail').value;
         const password = document.getElementById('loginPassword').value;
-        const users = JSON.parse(localStorage.getItem('apex_users') || '[]');
-        const user = users.find(u => u.email === email && u.password === password);
-        if (user) {
-            currentUser = { id: user.id, name: user.name, email: user.email, plan: user.plan };
-            localStorage.setItem('currentUser', JSON.stringify(currentUser));
-            closeModal('loginModal');
-            updateAuthUI();
-            showToast('Welcome back, ' + user.name + '! 💪', 'success');
-        } else { showToast('Invalid email or password', 'error'); }
+
+        try {
+            const res = await fetch(`${API_BASE}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                currentUser = data.user;
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                localStorage.setItem('token', data.token);
+                closeModal('loginModal');
+                updateAuthUI();
+                showToast('Welcome back, ' + data.user.name + '! 💪', 'success');
+            } else {
+                showToast(data.message || 'Login failed', 'error');
+            }
+        } catch (error) {
+            showToast('Network error. Please try again.', 'error');
+        }
     });
 
     // Admin Login
-    document.getElementById('adminLoginForm').addEventListener('submit', (e) => {
+    document.getElementById('adminLoginForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const id = document.getElementById('adminLoginId').value;
         const pw = document.getElementById('adminLoginPassword').value;
-        if (id === ADMIN_ID && pw === ADMIN_PASSWORD) {
-            closeModal('adminLoginModal');
-            openAdminPanel();
-            showToast('Welcome, Admin! 🛡️', 'success');
-        } else { showToast('Invalid admin credentials', 'error'); }
+
+        try {
+            const res = await fetch(`${API_BASE}/admin/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, password: pw })
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                localStorage.setItem('adminToken', data.token);
+                closeModal('adminLoginModal');
+                openAdminPanel();
+                showToast('Welcome, Admin! 🛡️', 'success');
+            } else {
+                showToast(data.message || 'Admin login failed', 'error');
+            }
+        } catch (error) {
+            showToast('Network error. Please try again.', 'error');
+        }
     });
 
     // Close modals on overlay click
@@ -316,6 +354,8 @@ function updateAuthUI() {
 function logout() {
     currentUser = null;
     localStorage.removeItem('currentUser');
+    localStorage.removeItem('token');
+    localStorage.removeItem('adminToken');
     updateAuthUI();
     showToast('Logged out successfully', 'info');
 }
@@ -355,24 +395,49 @@ function initReviews() {
         starsInput.forEach((s, i) => s.classList.toggle('active', i < selectedRating));
     });
 
-    document.getElementById('reviewForm').addEventListener('submit', (e) => {
+    document.getElementById('reviewForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const name = document.getElementById('reviewName').value;
         const text = document.getElementById('reviewText').value;
         if (!selectedRating) { showToast('Please select a rating', 'error'); return; }
 
-        const reviews = JSON.parse(localStorage.getItem('apex_reviews') || '[]');
-        reviews.unshift({ id: Date.now(), name, rating: selectedRating, text, date: new Date().toISOString() });
-        localStorage.setItem('apex_reviews', JSON.stringify(reviews));
+        try {
+            const res = await fetch(`${API_BASE}/reviews`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, rating: selectedRating, text })
+            });
+            const data = await res.json();
 
-        e.target.reset();
-        selectedRating = 0;
-        document.querySelectorAll('#starRatingInput .stars-input i').forEach(s => s.classList.remove('active'));
-        renderReviews();
-        showToast('Thank you for your review! ⭐', 'success');
+            if (res.ok) {
+                e.target.reset();
+                selectedRating = 0;
+                document.querySelectorAll('#starRatingInput .stars-input i').forEach(s => s.classList.remove('active'));
+                loadReviews();
+                showToast('Thank you for your review! ⭐', 'success');
+            } else {
+                showToast(data.message || 'Failed to submit review', 'error');
+            }
+        } catch (error) {
+            showToast('Network error. Please try again.', 'error');
+        }
     });
 
     renderReviews();
+}
+
+async function loadReviews() {
+    try {
+        const res = await fetch(`${API_BASE}/reviews`);
+        const reviews = await res.json();
+
+        if (res.ok) {
+            localStorage.setItem('apex_reviews', JSON.stringify(reviews));
+            renderReviews();
+        }
+    } catch (error) {
+        console.error('Failed to load reviews:', error);
+    }
 }
 
 function renderReviews() {
@@ -403,20 +468,30 @@ function renderReviews() {
 // CONTACT FORM (localStorage)
 // ========================
 function initContactForm() {
-    document.getElementById('contactForm').addEventListener('submit', (e) => {
+    document.getElementById('contactForm').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const messages = JSON.parse(localStorage.getItem('apex_messages') || '[]');
-        messages.push({
-            id: Date.now(),
-            name: document.getElementById('contactName').value,
-            email: document.getElementById('contactEmail').value,
-            subject: document.getElementById('contactSubject').value,
-            message: document.getElementById('contactMessage').value,
-            date: new Date().toISOString()
-        });
-        localStorage.setItem('apex_messages', JSON.stringify(messages));
-        showToast("Message sent! We'll get back to you soon. 📩", 'success');
-        e.target.reset();
+        const name = document.getElementById('contactName').value;
+        const email = document.getElementById('contactEmail').value;
+        const subject = document.getElementById('contactSubject').value;
+        const message = document.getElementById('contactMessage').value;
+
+        try {
+            const res = await fetch(`${API_BASE}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, email, subject, message })
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                showToast("Message sent! We'll get back to you soon. 📩", 'success');
+                e.target.reset();
+            } else {
+                showToast(data.message || 'Failed to send message', 'error');
+            }
+        } catch (error) {
+            showToast('Network error. Please try again.', 'error');
+        }
     });
 }
 
@@ -448,83 +523,257 @@ function switchAdminTab(tabName) {
     document.querySelectorAll('.admin-tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + tabName));
 }
 
-function loadAdminData() {
-    const users = JSON.parse(localStorage.getItem('apex_users') || '[]');
-    const bookings = JSON.parse(localStorage.getItem('apex_bookings') || '[]');
-    const reviews = JSON.parse(localStorage.getItem('apex_reviews') || '[]');
-    const messages = JSON.parse(localStorage.getItem('apex_messages') || '[]');
+async function loadAdminData() {
+    const adminToken = localStorage.getItem('adminToken');
+    if (!adminToken) {
+        showToast('Admin authentication required', 'error');
+        return;
+    }
 
-    // Stats
-    document.getElementById('stat-members').textContent = users.length;
-    document.getElementById('stat-bookings').textContent = bookings.length;
-    document.getElementById('stat-reviews').textContent = reviews.length;
-    document.getElementById('stat-messages').textContent = messages.length;
+    try {
+        // Load stats
+        const statsRes = await fetch(`${API_BASE}/admin/stats`, {
+            headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const stats = await statsRes.json();
 
-    // Bookings Chart
-    const classCounts = {};
-    bookings.forEach(b => { classCounts[b.className] = (classCounts[b.className] || 0) + 1; });
-    const colors = ['linear-gradient(90deg, #39ff14, #00f0ff)', 'linear-gradient(90deg, #00f0ff, #b829dd)', 'linear-gradient(90deg, #ff006e, #ffd60a)', 'linear-gradient(90deg, #ffd60a, #39ff14)', 'linear-gradient(90deg, #b829dd, #ff006e)', 'linear-gradient(90deg, #ff6b35, #ffd60a)'];
-    const maxCount = Math.max(...Object.values(classCounts), 1);
-    document.getElementById('bookingsChart').innerHTML = Object.keys(classCounts).length
-        ? Object.entries(classCounts).map(([name, count], i) => `<div class="chart-bar-row"><span class="chart-bar-label">${name}</span><div class="chart-bar-track"><div class="chart-bar-fill" style="width:${(count / maxCount) * 100}%;background:${colors[i % colors.length]}">${count}</div></div></div>`).join('')
-        : '<p style="color:var(--text-muted);text-align:center;padding:20px;">No booking data yet</p>';
+        if (statsRes.ok) {
+            document.getElementById('stat-members').textContent = stats.members || 0;
+            document.getElementById('stat-bookings').textContent = stats.bookings || 0;
+            document.getElementById('stat-reviews').textContent = stats.reviews || 0;
+            document.getElementById('stat-messages').textContent = stats.messages || 0;
 
-    // Membership Chart
-    const planCounts = { basic: 0, pro: 0, elite: 0, none: 0 };
-    users.forEach(u => { planCounts[u.plan || 'none']++; });
-    const maxPlan = Math.max(...Object.values(planCounts), 1);
-    const planColors = { basic: 'linear-gradient(90deg, #00b4d8, #00f0ff)', pro: 'linear-gradient(90deg, #39ff14, #00f0ff)', elite: 'linear-gradient(90deg, #ffd60a, #ff006e)', none: 'linear-gradient(90deg, rgba(255,255,255,0.2), rgba(255,255,255,0.1))' };
-    document.getElementById('membershipChart').innerHTML = Object.entries(planCounts).map(([plan, count]) => `<div class="chart-bar-row"><span class="chart-bar-label">${plan.charAt(0).toUpperCase() + plan.slice(1)}</span><div class="chart-bar-track"><div class="chart-bar-fill" style="width:${(count / maxPlan) * 100}%;background:${planColors[plan]}">${count}</div></div></div>`).join('');
+            // Bookings Chart
+            const classCounts = stats.classCounts || {};
+            const colors = ['linear-gradient(90deg, #39ff14, #00f0ff)', 'linear-gradient(90deg, #00f0ff, #b829dd)', 'linear-gradient(90deg, #ff006e, #ffd60a)', 'linear-gradient(90deg, #ffd60a, #39ff14)', 'linear-gradient(90deg, #b829dd, #ff006e)', 'linear-gradient(90deg, #ff6b35, #ffd60a)'];
+            const maxCount = Math.max(...Object.values(classCounts), 1);
+            document.getElementById('bookingsChart').innerHTML = Object.keys(classCounts).length
+                ? Object.entries(classCounts).map(([name, count], i) => `<div class="chart-bar-row"><span class="chart-bar-label">${name}</span><div class="chart-bar-track"><div class="chart-bar-fill" style="width:${(count / maxCount) * 100}%;background:${colors[i % colors.length]}">${count}</div></div></div>`).join('')
+                : '<p style="color:var(--text-muted);text-align:center;padding:20px;">No booking data yet</p>';
 
-    // Bookings Table
-    const bBody = document.getElementById('bookingsTableBody');
-    const bEmpty = document.getElementById('bookingsEmpty');
-    if (bookings.length) {
-        bEmpty.classList.remove('show');
-        bBody.innerHTML = bookings.map(b => `<tr><td>${b.userName || 'Guest'}</td><td>${b.className}</td><td>${b.day}</td><td>${b.time}</td><td>${new Date(b.date).toLocaleDateString()}</td><td><button class="btn-delete" onclick="deleteBooking(${b.id})"><i class="fas fa-trash"></i></button></td></tr>`).join('');
-    } else { bBody.innerHTML = ''; bEmpty.classList.add('show'); }
+            // Membership Chart
+            const planCounts = stats.planCounts || { basic: 0, pro: 0, elite: 0, none: 0 };
+            const maxPlan = Math.max(...Object.values(planCounts), 1);
+            const planColors = { basic: 'linear-gradient(90deg, #00b4d8, #00f0ff)', pro: 'linear-gradient(90deg, #39ff14, #00f0ff)', elite: 'linear-gradient(90deg, #ffd60a, #ff006e)', none: 'linear-gradient(90deg, rgba(255,255,255,0.2), rgba(255,255,255,0.1))' };
+            document.getElementById('membershipChart').innerHTML = Object.entries(planCounts).map(([plan, count]) => `<div class="chart-bar-row"><span class="chart-bar-label">${plan.charAt(0).toUpperCase() + plan.slice(1)}</span><div class="chart-bar-track"><div class="chart-bar-fill" style="width:${(count / maxPlan) * 100}%;background:${planColors[plan]}">${count}</div></div></div>`).join('');
+        }
 
-    // Members Table
-    const mBody = document.getElementById('membersTableBody');
-    const mEmpty = document.getElementById('membersEmpty');
-    if (users.length) {
-        mEmpty.classList.remove('show');
-        mBody.innerHTML = users.map(u => `<tr><td>${u.name}</td><td>${u.email}</td><td>${(u.plan || 'none').toUpperCase()}</td><td>${new Date(u.joinedAt).toLocaleDateString()}</td></tr>`).join('');
-    } else { mBody.innerHTML = ''; mEmpty.classList.add('show'); }
+        // Load bookings
+        const bookingsRes = await fetch(`${API_BASE}/admin/bookings`, {
+            headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const bookings = await bookingsRes.json();
+        const bBody = document.getElementById('bookingsTableBody');
+        const bEmpty = document.getElementById('bookingsEmpty');
+        if (bookingsRes.ok && bookings.length) {
+            bEmpty.classList.remove('show');
+            bBody.innerHTML = bookings.map(b => `<tr><td>${b.userName || 'Guest'}</td><td>${b.className}</td><td>${b.day}</td><td>${b.time}</td><td>${new Date(b.createdAt).toLocaleDateString()}</td><td><button class="btn-delete" onclick="deleteBooking('${b._id}')"><i class="fas fa-trash"></i></button></td></tr>`).join('');
+        } else {
+            bBody.innerHTML = ''; bEmpty.classList.add('show');
+        }
 
-    // Reviews Admin Table
-    const rBody = document.getElementById('reviewsAdminTableBody');
-    const rEmpty = document.getElementById('reviewsAdminEmpty');
-    if (reviews.length) {
-        rEmpty.classList.remove('show');
-        rBody.innerHTML = reviews.map(r => `<tr><td>${r.name}</td><td>${'⭐'.repeat(r.rating)}</td><td>${r.text.substring(0, 60)}${r.text.length > 60 ? '...' : ''}</td><td>${new Date(r.date).toLocaleDateString()}</td><td><button class="btn-delete" onclick="deleteReview(${r.id})"><i class="fas fa-trash"></i></button></td></tr>`).join('');
-    } else { rBody.innerHTML = ''; rEmpty.classList.add('show'); }
+        // Load members
+        const membersRes = await fetch(`${API_BASE}/admin/members`, {
+            headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const members = await membersRes.json();
+        const mBody = document.getElementById('membersTableBody');
+        const mEmpty = document.getElementById('membersEmpty');
+        if (membersRes.ok && members.length) {
+            mEmpty.classList.remove('show');
+            mBody.innerHTML = members.map(u => `<tr><td>${u.name}</td><td>${u.email}</td><td>${(u.plan || 'none').toUpperCase()}</td><td>${new Date(u.joinedAt).toLocaleDateString()}</td></tr>`).join('');
+        } else {
+            mBody.innerHTML = ''; mEmpty.classList.add('show');
+        }
 
-    // Messages Table
-    const msBody = document.getElementById('messagesTableBody');
-    const msEmpty = document.getElementById('messagesEmpty');
-    if (messages.length) {
-        msEmpty.classList.remove('show');
-        msBody.innerHTML = messages.map(m => `<tr><td>${m.name}</td><td>${m.email}</td><td>${m.subject}</td><td>${m.message.substring(0, 50)}${m.message.length > 50 ? '...' : ''}</td><td>${new Date(m.date).toLocaleDateString()}</td></tr>`).join('');
-    } else { msBody.innerHTML = ''; msEmpty.classList.add('show'); }
+        // Load reviews
+        const reviewsRes = await fetch(`${API_BASE}/admin/reviews`, {
+            headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const reviews = await reviewsRes.json();
+        const rBody = document.getElementById('reviewsAdminTableBody');
+        const rEmpty = document.getElementById('reviewsAdminEmpty');
+        if (reviewsRes.ok && reviews.length) {
+            rEmpty.classList.remove('show');
+            rBody.innerHTML = reviews.map(r => `<tr><td>${r.name}</td><td>${'⭐'.repeat(r.rating)}</td><td>${r.text.substring(0, 60)}${r.text.length > 60 ? '...' : ''}</td><td>${new Date(r.createdAt).toLocaleDateString()}</td><td><button class="btn-delete" onclick="deleteReview('${r._id}')"><i class="fas fa-trash"></i></button></td></tr>`).join('');
+        } else {
+            rBody.innerHTML = ''; rEmpty.classList.add('show');
+        }
+
+        // Load messages
+        const messagesRes = await fetch(`${API_BASE}/admin/messages`, {
+            headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const messages = await messagesRes.json();
+        const msBody = document.getElementById('messagesTableBody');
+        const msEmpty = document.getElementById('messagesEmpty');
+        if (messagesRes.ok && messages.length) {
+            msEmpty.classList.remove('show');
+            msBody.innerHTML = messages.map(m => `<tr><td>${m.name}</td><td>${m.email}</td><td>${m.subject}</td><td>${m.message.substring(0, 50)}${m.message.length > 50 ? '...' : ''}</td><td>${new Date(m.createdAt).toLocaleDateString()}</td></tr>`).join('');
+        } else {
+            msBody.innerHTML = ''; msEmpty.classList.add('show');
+        }
+
+    } catch (error) {
+        console.error('Failed to load admin data:', error);
+        showToast('Failed to load admin data', 'error');
+    }
 }
 
-function deleteBooking(id) { const d = JSON.parse(localStorage.getItem('apex_bookings') || '[]').filter(b => b.id !== id); localStorage.setItem('apex_bookings', JSON.stringify(d)); loadAdminData(); showToast('Booking deleted', 'info'); }
-function deleteReview(id) { const d = JSON.parse(localStorage.getItem('apex_reviews') || '[]').filter(r => r.id !== id); localStorage.setItem('apex_reviews', JSON.stringify(d)); loadAdminData(); renderReviews(); showToast('Review deleted', 'info'); }
-function clearAllBookings() { localStorage.setItem('apex_bookings', '[]'); loadAdminData(); showToast('All bookings cleared', 'info'); }
-function clearAllReviews() { localStorage.setItem('apex_reviews', '[]'); loadAdminData(); renderReviews(); showToast('All reviews cleared', 'info'); }
-function clearAllMessages() { localStorage.setItem('apex_messages', '[]'); loadAdminData(); showToast('All messages cleared', 'info'); }
+async function deleteBooking(id) {
+    const adminToken = localStorage.getItem('adminToken');
+    if (!adminToken) {
+        showToast('Admin authentication required', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/admin/bookings/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+
+        if (res.ok) {
+            loadAdminData();
+            showToast('Booking deleted', 'success');
+        } else {
+            showToast('Failed to delete booking', 'error');
+        }
+    } catch (error) {
+        showToast('Network error. Please try again.', 'error');
+    }
+}
+
+async function deleteReview(id) {
+    const adminToken = localStorage.getItem('adminToken');
+    if (!adminToken) {
+        showToast('Admin authentication required', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/admin/reviews/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+
+        if (res.ok) {
+            loadAdminData();
+            loadReviews();
+            showToast('Review deleted', 'success');
+        } else {
+            showToast('Failed to delete review', 'error');
+        }
+    } catch (error) {
+        showToast('Network error. Please try again.', 'error');
+    }
+}
+
+async function clearAllBookings() {
+    const adminToken = localStorage.getItem('adminToken');
+    if (!adminToken) {
+        showToast('Admin authentication required', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/admin/bookings`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+
+        if (res.ok) {
+            loadAdminData();
+            showToast('All bookings cleared', 'success');
+        } else {
+            showToast('Failed to clear bookings', 'error');
+        }
+    } catch (error) {
+        showToast('Network error. Please try again.', 'error');
+    }
+}
+
+async function clearAllReviews() {
+    const adminToken = localStorage.getItem('adminToken');
+    if (!adminToken) {
+        showToast('Admin authentication required', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/admin/reviews`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+
+        if (res.ok) {
+            loadAdminData();
+            loadReviews();
+            showToast('All reviews cleared', 'success');
+        } else {
+            showToast('Failed to clear reviews', 'error');
+        }
+    } catch (error) {
+        showToast('Network error. Please try again.', 'error');
+    }
+}
+
+async function clearAllMessages() {
+    const adminToken = localStorage.getItem('adminToken');
+    if (!adminToken) {
+        showToast('Admin authentication required', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/admin/messages`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+
+        if (res.ok) {
+            loadAdminData();
+            showToast('All messages cleared', 'success');
+        } else {
+            showToast('Failed to clear messages', 'error');
+        }
+    } catch (error) {
+        showToast('Network error. Please try again.', 'error');
+    }
+}
 
 // ========================
 // BOOKING (localStorage)
 // ========================
-function bookClass(className, day, time, btn) {
+async function bookClass(className, day, time, btn) {
     if (!currentUser) { showToast('Please login to book a class', 'info'); openModal('loginModal'); return; }
-    const bookings = JSON.parse(localStorage.getItem('apex_bookings') || '[]');
-    bookings.push({ id: Date.now(), userId: currentUser.id, userName: currentUser.name, className, day, time, date: new Date().toISOString() });
-    localStorage.setItem('apex_bookings', JSON.stringify(bookings));
-    showToast(`Booked ${className} on ${day} at ${time}! 🎉`, 'success');
-    if (btn) { btn.textContent = 'BOOKED'; btn.classList.add('booked'); }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+        showToast('Authentication required', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch(`${API_BASE}/bookings`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ className, day, time })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            showToast(`Booked ${className} on ${day} at ${time}! 🎉`, 'success');
+            if (btn) { btn.textContent = 'BOOKED'; btn.classList.add('booked'); }
+        } else {
+            showToast(data.message || 'Failed to book class', 'error');
+        }
+    } catch (error) {
+        showToast('Network error. Please try again.', 'error');
+    }
 }
 
 // ========================
@@ -557,15 +806,20 @@ function initTiltEffect() {
 // INITIALIZE EVERYTHING
 // ========================
 document.addEventListener('DOMContentLoaded', () => {
-    createParticles();
-    initNavbar();
-    animateCounters();
-    initScrollReveal();
-    initCarousel();
-    initBMI();
-    initAuth();
-    initReviews();
-    initContactForm();
-    initNewsletter();
-    initTiltEffect();
+    const fns = [
+        createParticles,
+        initNavbar,
+        animateCounters,
+        initScrollReveal,
+        initCarousel,
+        initBMI,
+        initAuth,
+        initReviews,
+        initContactForm,
+        initNewsletter,
+        initTiltEffect
+    ];
+    fns.forEach(fn => { try { fn(); } catch(e) { console.warn(fn.name + ' failed:', e.message); } });
+    // Load reviews from API in background
+    loadReviews().catch(() => {});
 });

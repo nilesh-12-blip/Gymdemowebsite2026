@@ -140,5 +140,35 @@ router.delete('/messages/:id', verifyAdmin, async (req, res) => {
   }
 });
 
+// Bulk delete all bookings
+router.delete('/bookings', verifyAdmin, async (req, res) => {
+  try {
+    await Booking.deleteMany({});
+    res.json({ message: 'All bookings cleared' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Bulk delete all reviews
+router.delete('/reviews', verifyAdmin, async (req, res) => {
+  try {
+    await Review.deleteMany({});
+    res.json({ message: 'All reviews cleared' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Bulk delete all messages
+router.delete('/messages', verifyAdmin, async (req, res) => {
+  try {
+    await Message.deleteMany({});
+    res.json({ message: 'All messages cleared' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 module.exports = router;
 
